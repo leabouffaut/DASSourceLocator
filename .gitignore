@@ -3,6 +3,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Non-important files
+bkp
+backup.py
+backup2
+whale_analysis_data.csv
+
+# Mac files
+.idea/
+*.DS_store
+
 # C extensions
 *.so
 
