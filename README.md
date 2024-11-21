@@ -19,7 +19,8 @@ It was developed by Léa Bouffaut, Ph.D.
 ## Demo
 Click on the image below to watch a demo of the DAS Source Locator:
 
-[![DAS Source Locator Demo](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://github.com/leabouffaut/DASSourceLocator/blob/main/DASSourceLocatorDemo.mp4)
+[Click here to watch a demo of the DAS Source Locator](https://github.com/leabouffaut/DASSourceLocator/blob/main/DASSourceLocatorDemo.mp4)
+
 
 
 ## Technical Details
