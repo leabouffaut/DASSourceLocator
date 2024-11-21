@@ -1,0 +1,255 @@
+
+import streamlit as st
+import sys
+import os
+import pandas as pd
+from pathlib import Path
+import numpy as np
+import das4whales as dw
+import scipy.signal as sp
+import scipy.stats as ss
+import numpy as np
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from matplotlib.backends.backend_agg import RendererAgg
+_lock = RendererAgg.lock
+
+import csv
+import os
+import librosa
+from datetime import datetime
+
+print("sys.path:", sys.path)
+print("Current working directory:", os.getcwd())
+
+
+from das_SF_locator import functions as fct
+
+# Get the titles for the app
+st.set_page_config(page_title='DAS Source Locator',)
+st.title('DAS Source Locator')
+
+st.header('Select files to process')
+# 1) Get the list of files to process
+list_file_path_default = '/Users/lb736/Python/DAS_GL/DAS_MedSea/annotations/MedSea_listfiles_to_analyze.txt'
+
+# User entry
+list_file_path = st.text_input(
+    "List of files to analyze",
+    value=list_file_path_default)
+
+# Get a list of files from the listfile
+with open(list_file_path_default, 'r') as file:
+    list_file = [line.strip() for line in file.readlines()]
+
+
+# Show the files to process
+last_folder_and_file = [Path(path).parent.name + "/" + Path(path).name for path in list_file]
+st.table(pd.DataFrame(last_folder_and_file, columns=['Files to process']))
+
+# 2) Get metadata
+# Load file, time and metadata
+tr, fileBeginTimeUTC, metadata = fct.load_ASN_DAS_file(list_file[0])
+# Metadata in code
+fs, dx, nx, ns, gauge_length = metadata["fs"], metadata["dx"], metadata["nx"], metadata["ns"], metadata["GL"]
+
+st.write(f'Sampling frequency: {metadata["fs"]} Hz')
+st.write(f'Channel spacing: {metadata["dx"]} m')
+st.write(f'Gauge length: {metadata["GL"]} m')
+st.write(f'File duration: {metadata["ns"] / metadata["fs"]} s')
+st.write(f'Cable max distance: {metadata["nx"] * metadata["dx"]/1e3:.1f} km')
+st.write(f'Number of channels: {metadata["nx"]}')
+st.write(f'Number of time samples: {metadata["ns"]}')
+
+# 3) Get the channel selection
+st.header('Channel selection for the analysis')
+col1, col2, col3 = st.columns(3)
+
+# User entry
+channel_min = int(col1.text_input(
+    "Channel min (m)",
+    value="3050",
+    ))
+
+channel_max = int(col2.text_input(
+    "Channel min (m)",
+    value="53050",
+    ))
+
+channel_step = col3.select_slider(
+    "Channel step (m)",
+    value=int(8),
+    options=[int(np.floor(metadata["dx"])) * i for i in range(1, 4 + 1)]
+)
+# Transform to correct data format
+channel_step = min([metadata["dx"] * i for i in range(1, 4 + 1)], key=lambda x: abs(x - channel_step))
+selected_channels_m = [channel_min, channel_max, channel_step]
+
+selected_channels = [int(selected_channels_m // dx) for selected_channels_m in
+                     selected_channels_m]  # list of values in channel number (spatial sample) corresponding to the starting, ending and step wanted
+                                           # channels along the FO Cable
+                                           # selected_channels = [ChannelStart, ChannelStop, ChannelStep] in channel
+                                           # numbers
+st.write('Begin channel #:', selected_channels[0],
+      ', End channel #: ',selected_channels[1],
+      ', step: ',selected_channels[2],
+      'equivalent to ',selected_channels[2]*dx,' m')
+
+st.header('Cable position')
+
+# 3) Cable position file
+position_file_default = '/Users/lb736/Python/DAS_GL/DAS_MedSea/MEUST_WGS84_latlondepth_corrected.txt'
+
+
+position_file = st.text_input(
+    "DAS position file",
+    value=position_file_default)
+
+# Show cable position
+position = fct.get_lat_lon_depth(position_file, selected_channels, metadata)
+# Convert position data to DataFrame
+df_position = pd.DataFrame(position)
+# Rename the columns to match Streamlit's expected format
+df_position = df_position.rename(columns={'Lat.': 'LAT', 'Lon.': 'LON'}) # This might need to be edited only for Toulon!
+st.map(pd.DataFrame(df_position))
+
+# 3) Load and pre-process each file
+# Set up session state
+if 'file_index' not in st.session_state:
+    st.session_state.file_index = 0
+if 'estimated_whale_apex_m' not in st.session_state:
+    st.session_state.estimated_whale_apex_m = 22600
+if 'estimated_whale_offset_m' not in st.session_state:
+    st.session_state.estimated_whale_offset_m = 2000
+if 'estimates_start_time_s' not in st.session_state:
+    st.session_state.estimates_start_time_s = 2.0
+
+# Get metadata
+file_index = st.session_state.file_index
+if file_index < len(list_file):
+    file = list_file[file_index]
+    # Load data
+    tr, fileBeginTimeUTC,m = fct.load_ASN_DAS_file(file)
+    tr = tr[selected_channels[0]:selected_channels[1]:selected_channels[2], :].astype(np.float64)
+    del m
+    # Store the following as the dimensions of our data block
+    nnx = tr.shape[0]
+    nns = tr.shape[1]
+
+    # Define new time and distance axes
+    time = np.arange(nns) / metadata["fs"]
+    dist = (np.arange(nnx) * selected_channels[2] + selected_channels[0]) * metadata["dx"]
+
+    # Create the f-k filter
+    fk_filter = dw.dsp.hybrid_ninf_filter_design((tr.shape[0], tr.shape[1]), selected_channels, dx, fs,
+                                                 cs_min=1350, cp_min=1450, cp_max=3300, cs_max=3450, fmin=14, fmax=30,
+                                                 display_filter=False)
+    # Apply the bandpass
+    tr = dw.dsp.bp_filt(tr, fs, 14, 30)
+
+    # Apply the f-k filter to the data, returns spatio-temporal strain matrix
+    trf_fk = dw.dsp.fk_filter_sparsefilt(tr, fk_filter, tapering=False)
+
+    # Detection
+    HF_note = dw.detect.gen_template_fincall(time, fs, fmin=14, fmax=24, duration=0.70)
+    corr_m_HF = fct.compute_cross_correlogram(trf_fk, HF_note)
+
+    # Find the local maximas using find peaks and a threshold
+    thres = 0.5
+
+    # Find the arrival times and store them in a list of arrays format
+    peaks_indexes_m_HF = dw.detect.pick_times(corr_m_HF, threshold=thres)
+
+    # Convert the list of array to tuple format
+    peaks_indexes_tp_HF = dw.detect.convert_pick_times(peaks_indexes_m_HF)
+
+    st.header('Find whale position')
+    # 4) Get the Position information
+    st.session_state.estimated_whale_apex_m  = st.number_input(
+        "Whale apex (m)",
+        min_value = int(dist[0]),
+        max_value = int(dist[-1]),
+        step = 50,
+        value = 22600,
+    )
+    st.session_state.estimated_whale_offset_m = st.number_input(
+        "Whale offset (m)",
+        min_value = 0,
+        max_value = 20000,
+        step = 100,
+        value = 2000,
+    )
+    st.session_state.estimates_start_time_s = st.number_input(
+        "Start time (s)",
+        min_value = time[0],
+        max_value = time[-1],
+        step = 0.1,
+        value = 2.0,
+    )
+    whale_depth_m = 30
+    c = 1490
+
+    # Plot to check
+    # Compute theoretical TDOA
+    TDOA_th = fct.get_theory_TDOA(
+        position,
+        st.session_state.estimated_whale_apex_m,
+        st.session_state.estimated_whale_offset_m,
+        dist,
+        whale_depth_m=30, c=1490)
+
+    # 5) Plot
+
+    # Create a Plotly figure
+    fig = go.Figure()
+
+    # Add heatmap
+    #fig.add_trace(go.Heatmap(
+    #    z=abs(sp.hilbert(trf_fk, axis=1)) * 10 ** 9,
+    #    x=time,
+    #    y=dist / 1000,
+    #    colorscale='Jet',
+    #    colorbar=dict(title='Amplitude (nPa)'),
+    #    zmin=0,
+    #    zmax=0.4
+    #))
+
+    # Add peaks
+    fig.add_trace(go.Scatter(
+        x=time[peaks_indexes_tp_HF[1]],
+        y=dist[peaks_indexes_tp_HF[0]] / 1000,
+        mode='markers',
+        marker=dict(color='white', opacity=0.2, size=5),
+        name='Peaks'
+    ))
+
+    # Add theoretical TDOA line
+    fig.add_trace(go.Scatter(
+        x=TDOA_th +  st.session_state.estimates_start_time_s,
+        y=dist / 1000,
+        mode='lines',
+        line=dict(color='red', width=2),
+        name='Theoretical TOA'
+    ))
+
+    # Update layout with fixed axis labels and limits
+    fig.update_layout(
+        xaxis_title='Time (s)',
+        yaxis_title='Distance (km)',
+        xaxis=dict(range=[time[0], time[-1]]),  # Fixed x-axis range
+        yaxis=dict(range=[dist[0]/1000, dist[-1]/1000]),  # Consistent y-axis range
+        #title='Interactive Plot',
+        width=864,  # Fixed figure width in pixels
+        height=720  # Fixed figure height in pixels
+    )
+
+    # Display the interactive plot in Streamlit
+    st.plotly_chart(fig)
+    # Save button
+    if st.button("Save and Next"):
+        st.session_state.file_index += 1
+        if st.session_state.file_index >= len(list_file):
+            st.session_state.file_index = 0  # Loop back to the first file if desired
+        st.experimental_rerun()  # Refresh the app to process the next file
+else:
+    st.write("No more files to process.")
