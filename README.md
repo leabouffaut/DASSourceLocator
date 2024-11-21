@@ -15,11 +15,8 @@ It was developed by Léa Bouffaut, Ph.D.
   - First time of arrival (Start time)
 - Option to pick the side of the source (left/right) on the interrogator
 - Outputs annotations to a CSV file
-
-## Demo
-Click on the image below to watch a demo of the DAS Source Locator:
-
-[Click here to watch a demo of the DAS Source Locator](https://github.com/leabouffaut/DASSourceLocator/blob/main/DASSourceLocatorDemo.mp4)
+  
+[Check out the provided demo video](https://github.com/leabouffaut/DASSourceLocator/blob/main/DASSourceLocatorDemo.mp4)
 
 
 
