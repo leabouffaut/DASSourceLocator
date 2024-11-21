@@ -3,7 +3,9 @@
 ## Overview
 
 This tool is designed for annotating Distributed Acoustic Sensing (DAS) data, specifically for matching theoretical times of arrivals (TOA) to recorded data in the spatiotemporal domain. 
-It was developed by Léa Bouffaut, Ph.D.
+Developed by Léa Bouffaut, Ph.D.
+Post-doctoral associate at the K. Lisa Yang Center for Conservation Bioacoustics, Cornell University
+
 
 ## Features
 - Pre-processes DAS data
