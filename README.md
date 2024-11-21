@@ -16,6 +16,12 @@ It was developed by Léa Bouffaut, Ph.D.
 - Option to pick the side of the source (left/right) on the interrogator
 - Outputs annotations to a CSV file
 
+## Demo
+Click on the image below to watch a demo of the DAS Source Locator:
+
+[![DAS Source Locator Demo](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://github.com/leabouffaut/DASSourceLocator/blob/main/DASSourceLocatorDemo.mp4)
+
+
 ## Technical Details
 - Tested on 3 different DAS systems
 - Optimized for Fin whale 20 Hz calls
